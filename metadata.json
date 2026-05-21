@@ -1,0 +1,6 @@
+{
+  "name": "PRReSSO",
+  "description": "Premium self-service and multi-agent AI orchestrated support for telco customers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
