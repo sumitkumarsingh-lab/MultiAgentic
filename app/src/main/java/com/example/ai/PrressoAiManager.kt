@@ -3,6 +3,7 @@ package com.example.ai
 import android.util.Log
 import com.example.BuildConfig
 import com.example.data.model.ChatMessageEntity
+import com.example.data.model.CrmStateEntity
 import com.example.data.repository.PrressoRepository
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -26,6 +27,16 @@ interface GeminiApiService {
         @Query("key") apiKey: String,
         @Body request: GeminiRequest
     ): GeminiResponse
+}
+
+interface OpenRouterApiService {
+    @POST("api/v1/chat/completions")
+    suspend fun chatCompletions(
+        @retrofit2.http.Header("Authorization") authHeader: String,
+        @retrofit2.http.Header("HTTP-Referer") refererHeader: String,
+        @retrofit2.http.Header("X-Title") titleHeader: String,
+        @Body request: OpenRouterRequest
+    ): OpenRouterResponse
 }
 
 class PrressoAiManager(private val repository: PrressoRepository) {
@@ -52,6 +63,14 @@ class PrressoAiManager(private val repository: PrressoRepository) {
 
     private val apiService = retrofit.create(GeminiApiService::class.java)
 
+    private val openRouterRetrofit = Retrofit.Builder()
+        .baseUrl("https://openrouter.ai/")
+        .client(okHttpClient)
+        .addConverterFactory(MoshiConverterFactory.create(moshi))
+        .build()
+
+    private val openRouterApiService = openRouterRetrofit.create(OpenRouterApiService::class.java)
+
     fun getActiveAgentName(): String = activeAgentName
 
     fun forceResetAgent() {
@@ -72,10 +91,25 @@ class PrressoAiManager(private val repository: PrressoRepository) {
         return apiKey.isNotEmpty() && apiKey != "MY_GEMINI_API_KEY" && !apiKey.contains("PLACEHOLDER")
     }
 
+    fun isOpenRouterConfigured(apiKey: String): Boolean {
+        return apiKey.isNotEmpty() && !apiKey.contains("PLACEHOLDER")
+    }
+
     /**
      * Multi-agent conversation handoff processing.
      */
     suspend fun processChatResponse(userMessage: String): ChatMessageEntity = withContext(Dispatchers.IO) {
+        val dbState = repository.getCrmState()
+        
+        if (isOpenRouterConfigured(dbState.openRouterApiKey)) {
+            try {
+                return@withContext runRealOpenRouterAi(userMessage, dbState)
+            } catch (e: Exception) {
+                Log.e(tag, "OpenRouter API call failed, trying direct Gemini fallback", e)
+                repository.insertLog("system", "OpenRouter API failed (${e.localizedMessage}). Trying direct Gemini fallback.")
+            }
+        }
+
         if (isApiKeyConfigured()) {
             try {
                 return@withContext runRealGeminiAi(userMessage)
@@ -94,6 +128,9 @@ class PrressoAiManager(private val repository: PrressoRepository) {
      */
     private suspend fun runSimulation(userMessage: String): ChatMessageEntity {
         val normalized = userMessage.lowercase().trim()
+        val dbState = repository.getCrmState()
+        val customerName = dbState.customerName
+        val customerTier = dbState.tier
         
         var parsedResponse = ""
         var apiCalled: String? = null
@@ -111,7 +148,7 @@ class PrressoAiManager(private val repository: PrressoRepository) {
                     apiCalled = "api_query_current_usage()"
                     apiResponse = repository.apiQueryCurrentUsage()
                     
-                    parsedResponse = "Hello Sumit Kumar! Under our cellular orchestration routing protocols, I have transferred you to our **Technical Specialist**. " +
+                    parsedResponse = "Hello $customerName! Under our cellular orchestration routing protocols, I have transferred you to our **Technical Specialist**. " +
                             "\n\n[Diagnostic Logs]: Executing automatic line analyzer..." +
                             "\n\n*${apiResponse}*" +
                             "\n\nYour account shows severe utilization (>90% threshold active), indicating high-speed bandwidth throttling is active. I must immediately hand you off to our commercial Desk to look for loyalty topups!"
@@ -129,14 +166,14 @@ class PrressoAiManager(private val repository: PrressoRepository) {
                     apiResponse = repository.apiApplyPlatinumTopup()
                     
                     parsedResponse = "Under our VIP protocols, I have routed your query to our **Retention Specialist**.\n\n" +
-                            "Hello Sumit, our valued Platinum tier customer! I see you are seeking upgrade options. " +
+                            "Hello $customerName, our valued $customerTier tier customer! I see you are seeking upgrade options. " +
                             "Since you are on our elite tier, we are directly bypass-modifying our databases to grant you support.\n\n" +
                             "**[Loyalty Bonus Applied]**: *${apiResponse}*\n\n" +
                             "Your limit has been dynamically augmented. High-speed lanes are fully restored, free of charge!"
                 } else {
-                    parsedResponse = "Greetings Sumit! I am the **Triage Router** for PRReSSO (Premium Rapid Response Support & Self-care Orchestrator). " +
+                    parsedResponse = "Greetings $customerName! I am the **Triage Router** for PRReSSO (Premium Rapid Response Support & Self-care Orchestrator). " +
                             "I monitor real-time CRM indices for our users. " +
-                            "Are you experiencing issues with connection speed, or would you like to inquire about bills, plans, and customized Platinum top-ups? Please type your request!"
+                            "Are you experiencing issues with connection speed, or would you like to inquire about bills, plans, and customized $customerTier top-ups? Please type your request!"
                 }
             }
             "Technical Specialist" -> {
@@ -149,7 +186,7 @@ class PrressoAiManager(private val repository: PrressoRepository) {
                     apiResponse = repository.apiApplyPlatinumTopup()
                     
                     parsedResponse = "Transferring to **Retention Specialist** immediately to address billing adjustments...\n\n" +
-                            "Hi Sumit, Retention Specialist here! I've executed database operations on your behalf:\n" +
+                            "Hi $customerName, Retention Specialist here! I've executed database operations on your behalf:\n" +
                             "**[Loyalty Release Success]**: *${apiResponse}*\n\n" +
                             "Enjoy the high priority channels. Standard rate charges have been fully waived."
                 } else if (normalized.contains("diagnose") || normalized.contains("speed") || normalized.contains("usage") || normalized.contains("data") || normalized.contains("check")) {
@@ -188,9 +225,9 @@ class PrressoAiManager(private val repository: PrressoRepository) {
                     
                     parsedResponse = "Executing custom loyalty parameters...\n\n" +
                             "**[Loyalty DB Mutator Approved]**: *${apiResponse}*\n\n" +
-                            "We have recorded your top-up. Is everything working as expected now, Sumit?"
+                            "We have recorded your top-up. Is everything working as expected now, $customerName?"
                 } else {
-                    parsedResponse = "Hi Sumit, Retention Specialist on line. As an elite VIP user, you have absolute access to custom top-up allocations and contract optimization channels. Just say the word!"
+                    parsedResponse = "Hi $customerName, Retention Specialist on line. As an elite VIP user, you have absolute access to custom top-up allocations and contract optimization channels. Just say the word!"
                 }
             }
         }
@@ -300,6 +337,116 @@ class PrressoAiManager(private val repository: PrressoRepository) {
         }
 
         // Parse Tool Executions
+        if (processedText.contains("<call_api_query_current_usage/>")) {
+            apiCalled = "api_query_current_usage()"
+            apiResponse = repository.apiQueryCurrentUsage()
+            processedText = processedText.replace("<call_api_query_current_usage/>", "").trim()
+            processedText += "\n\n*Diagnostics Response:* $apiResponse"
+        }
+        if (processedText.contains("<call_api_apply_platinum_topup/>")) {
+            apiCalled = "api_apply_platinum_topup()"
+            apiResponse = repository.apiApplyPlatinumTopup()
+            processedText = processedText.replace("<call_api_apply_platinum_topup/>", "").trim()
+            processedText += "\n\n*Loyalty Response:* $apiResponse"
+        }
+
+        val chatMessage = ChatMessageEntity(
+            role = "assistant",
+            agentName = assistantAgentName(agentBefore, activeAgentName, apiCalled != null),
+            content = processedText,
+            apiCalled = apiCalled,
+            apiResponse = apiResponse
+        )
+        
+        repository.insertMessage(chatMessage)
+        return chatMessage
+    }
+
+    private suspend fun runRealOpenRouterAi(userMessage: String, dbState: CrmStateEntity): ChatMessageEntity {
+        val apiKey = dbState.openRouterApiKey
+        val systemPrompt = """
+            You are the sovereign Swarm Multi-Agent orchestrator for a premier telecom (called PRReSSO).
+            You hold authoritative access over our client database:
+            - Client Name: ${dbState.customerName}
+            - Current Club Tier: ${dbState.tier}
+            - Current Consumption: ${dbState.bandwidthUsedGb}GB out of ${dbState.bandwidthLimitGb}GB Limit (Pending Topups: ${dbState.pendingTopups}).
+
+            The Swarm defines 3 autonomous agents with distinct roles:
+            1. 'Triage Router': Greets the user '${dbState.customerName}', assesses their intent.
+               - Routes to 'Technical Specialist' for slow speed, diagnostics, Drops, Network claims. Tag: <route:Technical Specialist/>
+               - Routes to 'Retention Specialist' for costs, bills, fee disputes, plan upgrades. Tag: <route:Retention Specialist/>
+            2. 'Technical Specialist': Analytical diagnostician.
+               - Always executes current usage analysis. Tag: <call_api_query_current_usage/>
+               - If usage exceeds 90% (which represents ${dbState.bandwidthUsedGb}/${dbState.bandwidthLimitGb}GB = ${(dbState.bandwidthUsedGb.toFloat()/dbState.bandwidthLimitGb * 100).toInt()}%), state high-speed throttle active and hand over parameters immediately to 'Retention Specialist' to procure free reliefs. Tag: <route:Retention Specialist/>
+               - Hand over if client mentions plan upgrades, costs or disputes during test. Tag: <route:Retention Specialist/>
+            3. 'Retention Specialist': VIP Commercial loyalty desk.
+               - Values our Platinum tier users. Does not demand charges. Proactively grants 50GB extra limit. Tag: <call_api_apply_platinum_topup/>
+               - Hand back to technical if client asks about diagnostics, faults or physical parameters. Tag: <route:Technical Specialist/>
+
+            Your active persona is currently: '$activeAgentName'.
+            Speak directly with premium tone, clear negative spacings, bold markings. Avoid any technical tags in the written speech except the strict functional tags:
+            - Routing trigger: <route:Agent Name/> (Agent Name belongs to "Technical Specialist" or "Retention Specialist" or "Triage Router")
+            - Database queries triggered by active agent:
+              - <call_api_query_current_usage/>
+              - <call_api_apply_platinum_topup/>
+
+            Keep response highly formatted, clean and conversational.
+        """.trimIndent()
+
+        val rawHistory = repository.allMessages.first()
+        val openRouterMessages = mutableListOf<OpenRouterMessage>()
+        
+        openRouterMessages.add(OpenRouterMessage(role = "system", content = systemPrompt))
+        
+        rawHistory.takeLast(10).forEach {
+            openRouterMessages.add(
+                OpenRouterMessage(
+                    role = if (it.role == "user") "user" else "assistant",
+                    content = it.content
+                )
+            )
+        }
+        
+        openRouterMessages.add(OpenRouterMessage(role = "user", content = userMessage))
+
+        val request = OpenRouterRequest(
+            model = dbState.openRouterModel.ifEmpty { "google/gemini-2.5-flash:free" },
+            messages = openRouterMessages,
+            temperature = 0.4f
+        )
+
+        val authHeader = "Bearer $apiKey"
+        val response = openRouterApiService.chatCompletions(
+            authHeader = authHeader,
+            refererHeader = "https://ai.studio/build",
+            titleHeader = "PRReSSO Swarm AI",
+            request = request
+        )
+        
+        val rawAiText = response.choices?.firstOrNull()?.message?.content ?: ""
+        
+        if (rawAiText.isEmpty()) {
+            throw Exception("Null or empty message returned from OpenRouter")
+        }
+
+        var processedText = rawAiText
+        var apiCalled: String? = null
+        var apiResponse: String? = null
+        val agentBefore = activeAgentName
+
+        if (processedText.contains("<route:Technical Specialist/>")) {
+            activeAgentName = "Technical Specialist"
+            repository.insertLog("handoff", "[Handoff Matrix]: Swarm dynamic handoff to Technical Specialist")
+            processedText = processedText.replace("<route:Technical Specialist/>", "[Routing user context: Technical Specialist]").trim()
+        } else if (processedText.contains("<route:Retention Specialist/>")) {
+            activeAgentName = "Retention Specialist"
+            repository.insertLog("handoff", "[Handoff Matrix]: Swarm dynamic handoff to Retention Specialist")
+            processedText = processedText.replace("<route:Retention Specialist/>", "[Routing user context: Retention Specialist]").trim()
+        } else if (processedText.contains("<route:Triage Router/>")) {
+            activeAgentName = "Triage Router"
+            processedText = processedText.replace("<route:Triage Router/>", "[Routing user context: Triage Router]").trim()
+        }
+
         if (processedText.contains("<call_api_query_current_usage/>")) {
             apiCalled = "api_query_current_usage()"
             apiResponse = repository.apiQueryCurrentUsage()

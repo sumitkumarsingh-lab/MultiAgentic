@@ -178,7 +178,8 @@ fun MainDashboardScreen(
                         isWorking = isGenerating,
                         onTriggerDiagnostics = { viewModel.manualQueryUsage() },
                         onTriggerTopup = { viewModel.manualApplyTopup() },
-                        onAgentSelect = { viewModel.manualChangeAgent(it) }
+                        onAgentSelect = { viewModel.manualChangeAgent(it) },
+                        onUpdateCrmState = { viewModel.updateCrmState(it) }
                     )
                 } else {
                     // AI Swarm Chat Console
@@ -450,7 +451,8 @@ fun DashboardPage(
     isWorking: Boolean,
     onTriggerDiagnostics: () -> Unit,
     onTriggerTopup: () -> Unit,
-    onAgentSelect: (String) -> Unit
+    onAgentSelect: (String) -> Unit,
+    onUpdateCrmState: (CrmStateEntity) -> Unit
 ) {
     if (crmState == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -469,6 +471,11 @@ fun DashboardPage(
         // Dynamic Animated Progress Meter
         item {
             UsageMeterCard(crmState = crmState)
+        }
+
+        // Swarm AI Core & Profile Configulator
+        item {
+            SwarmConfigurationCard(crmState = crmState, onSaveConfig = onUpdateCrmState)
         }
 
         // Bento Quick Stats Row (Balance & Plan)
@@ -1314,3 +1321,217 @@ fun TypingIndicatorBubble(agentName: String) {
 // Separate styling helper for Material Design compliant tint color
 @Composable
 fun platinumSilverColorTint(): Color = PlatinumSilver
+
+@Composable
+fun SwarmConfigurationCard(
+    crmState: CrmStateEntity,
+    onSaveConfig: (CrmStateEntity) -> Unit
+) {
+    var isExpanded by remember { mutableStateOf(false) }
+    
+    var customerName by remember(crmState) { mutableStateOf(crmState.customerName) }
+    var tier by remember(crmState) { mutableStateOf(crmState.tier) }
+    var openRouterApiKey by remember(crmState) { mutableStateOf(crmState.openRouterApiKey) }
+    var openRouterModel by remember(crmState) { mutableStateOf(crmState.openRouterModel) }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .testTag("swarm_config_card"),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+        border = BorderStroke(1.dp, BorderSlate)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            // Header Row (Click to toggle expansion)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isExpanded = !isExpanded }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Filled.Settings,
+                        contentDescription = "Settings",
+                        tint = HyperCyan,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "Swarm Profile & LLM Config",
+                            color = TextNavy,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
+                        Text(
+                            text = if (crmState.openRouterApiKey.isNotEmpty()) "Using Connected LLM Mode" else "Using Free Local Swarm Engine",
+                            color = if (crmState.openRouterApiKey.isNotEmpty()) SuccessEmerald else TechOrange,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+                Icon(
+                    imageVector = if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = if (isExpanded) "Collapse Settings" else "Expand Settings",
+                    tint = TextGray
+                )
+            }
+
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    HorizontalDivider(color = BorderSlate.copy(alpha = 0.5f), thickness = 0.5.dp)
+
+                    // Client Name
+                    Column {
+                        Text(
+                            text = "Client Name (CRM Context)",
+                            color = TextNavy,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        )
+                        OutlinedTextField(
+                            value = customerName,
+                            onValueChange = { customerName = it },
+                            placeholder = { Text("e.g. Anonymous User") },
+                            modifier = Modifier.fillMaxWidth().testTag("config_client_name"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = HyperCyan,
+                                unfocusedBorderColor = BorderSlate,
+                                focusedContainerColor = DeepSpaceBlue,
+                                unfocusedContainerColor = DeepSpaceBlue
+                            ),
+                            singleLine = true
+                        )
+                    }
+
+                    // Client Tier
+                    Column {
+                        Text(
+                            text = "Club Tier Membership",
+                            color = TextNavy,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        )
+                        OutlinedTextField(
+                            value = tier,
+                            onValueChange = { tier = it },
+                            placeholder = { Text("e.g. Platinum, Gold, Standard") },
+                            modifier = Modifier.fillMaxWidth().testTag("config_client_tier"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = HyperCyan,
+                                unfocusedBorderColor = BorderSlate,
+                                focusedContainerColor = DeepSpaceBlue,
+                                unfocusedContainerColor = DeepSpaceBlue
+                            ),
+                            singleLine = true
+                        )
+                    }
+
+                    // OpenRouter API Key
+                    Column {
+                        Text(
+                            text = "OpenRouter API Key (Secure Local State)",
+                            color = TextNavy,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        )
+                        OutlinedTextField(
+                            value = openRouterApiKey,
+                            onValueChange = { openRouterApiKey = it },
+                            placeholder = { Text("sk-or-...") },
+                            modifier = Modifier.fillMaxWidth().testTag("config_or_key"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = HyperCyan,
+                                unfocusedBorderColor = BorderSlate,
+                                focusedContainerColor = DeepSpaceBlue,
+                                unfocusedContainerColor = DeepSpaceBlue
+                            ),
+                            singleLine = true
+                        )
+                        Text(
+                            text = "Leaves blank to trigger secure offline/sandbox simulation.",
+                            color = TextGray,
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
+                    }
+
+                    // OpenRouter Model Selection
+                    Column {
+                        Text(
+                            text = "OpenRouter Endpoint Model",
+                            color = TextNavy,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        )
+                        OutlinedTextField(
+                            value = openRouterModel,
+                            onValueChange = { openRouterModel = it },
+                            placeholder = { Text("google/gemini-2.5-flash:free") },
+                            modifier = Modifier.fillMaxWidth().testTag("config_or_model"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = HyperCyan,
+                                unfocusedBorderColor = BorderSlate,
+                                focusedContainerColor = DeepSpaceBlue,
+                                unfocusedContainerColor = DeepSpaceBlue
+                            ),
+                            singleLine = true
+                        )
+                    }
+
+                    // Save Button
+                    Button(
+                        onClick = {
+                            val updated = crmState.copy(
+                                customerName = customerName.ifBlank { "Anonymous" },
+                                tier = tier.ifBlank { "Standard" },
+                                openRouterApiKey = openRouterApiKey,
+                                openRouterModel = openRouterModel.ifBlank { "google/gemini-2.5-flash:free" }
+                            )
+                            onSaveConfig(updated)
+                            isExpanded = false
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)
+                            .testTag("apply_config_button"),
+                        colors = ButtonDefaults.buttonColors(containerColor = HyperCyan),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Icon(imageVector = Icons.Filled.Check, contentDescription = "Save", modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Apply Configuration", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+

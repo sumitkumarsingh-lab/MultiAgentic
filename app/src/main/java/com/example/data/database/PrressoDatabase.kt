@@ -13,7 +13,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-@Database(entities = [CrmStateEntity::class, ChatMessageEntity::class, ApiLogEntity::class], version = 1, exportSchema = false)
+@Database(entities = [CrmStateEntity::class, ChatMessageEntity::class, ApiLogEntity::class], version = 2, exportSchema = false)
 abstract class PrressoDatabase : RoomDatabase() {
     abstract fun prressoDao(): PrressoDao
 
@@ -29,6 +29,7 @@ abstract class PrressoDatabase : RoomDatabase() {
                     "prresso_database"
                 )
                 .addCallback(PrressoDatabaseCallback(scope))
+                .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
                 instance

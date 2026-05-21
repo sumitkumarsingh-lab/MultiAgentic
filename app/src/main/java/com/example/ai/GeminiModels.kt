@@ -37,3 +37,26 @@ data class GeminiResponse(
 data class GeminiCandidate(
     val content: GeminiContent? = null
 )
+
+@JsonClass(generateAdapter = true)
+data class OpenRouterMessage(
+    val role: String,
+    val content: String
+)
+
+@JsonClass(generateAdapter = true)
+data class OpenRouterRequest(
+    val model: String,
+    val messages: List<OpenRouterMessage>,
+    val temperature: Float? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class OpenRouterResponse(
+    val choices: List<OpenRouterChoice>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class OpenRouterChoice(
+    val message: OpenRouterMessage? = null
+)

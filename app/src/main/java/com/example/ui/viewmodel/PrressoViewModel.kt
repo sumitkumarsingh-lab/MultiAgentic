@@ -62,10 +62,12 @@ class PrressoViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             val existing = repository.allMessages.firstOrNull() ?: emptyList()
             if (existing.isEmpty()) {
+                val dbState = repository.getCrmState()
+                val name = dbState?.customerName ?: "Sumit Kumar"
                 repository.insertMessage(ChatMessageEntity(
                     role = "assistant",
                     agentName = "Triage Router",
-                    content = "Greetings **Sumit Kumar**! I am the **Triage Router** for PRReSSO.\n\n" +
+                    content = "Greetings **$name**! I am the **Triage Router** for PRReSSO.\n\n" +
                             "I monitor live network indices. If you are experiencing slower speeds, connection drops, or want to check billing adjustments and premium loyalty rewards, describe your issue here!"
                 ))
             }
@@ -105,10 +107,18 @@ class PrressoViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun updateCrmState(state: CrmStateEntity) {
+        viewModelScope.launch {
+            repository.updateCrmState(state)
+        }
+    }
+
     fun manualQueryUsage() {
         viewModelScope.launch {
             _isGenerating.value = true
-            repository.insertLog("system", "[Manual Action]: Customer Sumit triggered manual usage query diagnostic.")
+            val dbState = repository.getCrmState()
+            val name = dbState?.customerName ?: "Sumit"
+            repository.insertLog("system", "[Manual Action]: Customer $name triggered manual usage query diagnostic.")
             val response = repository.apiQueryCurrentUsage()
             repository.insertMessage(ChatMessageEntity(
                 role = "assistant",
@@ -124,7 +134,9 @@ class PrressoViewModel(application: Application) : AndroidViewModel(application)
     fun manualApplyTopup() {
         viewModelScope.launch {
             _isGenerating.value = true
-            repository.insertLog("system", "[Manual Action]: Customer Sumit triggered manual topup reservation.")
+            val dbState = repository.getCrmState()
+            val name = dbState?.customerName ?: "Sumit"
+            repository.insertLog("system", "[Manual Action]: Customer $name triggered manual topup reservation.")
             val response = repository.apiApplyPlatinumTopup()
             repository.insertMessage(ChatMessageEntity(
                 role = "assistant",
@@ -139,31 +151,47 @@ class PrressoViewModel(application: Application) : AndroidViewModel(application)
 
     fun manualChangeAgent(agentName: String) {
         viewModelScope.launch {
+            val dbState = repository.getCrmState()
+            val name = dbState?.customerName ?: "Sumit"
             aiManager.setAgent(agentName)
             _currentAgent.value = agentName
             repository.insertLog("handoff", "[Handoff Matrix - Manual]: Customer manually matched stream context to $agentName.")
             repository.insertMessage(ChatMessageEntity(
                 role = "assistant",
                 agentName = agentName,
-                content = "Agent Handoff Complete. Hello Sumit, how can I assist you as custom **$agentName**?"
+                content = "Agent Handoff Complete. Hello $name, how can I assist you as custom **$agentName**?"
             ))
         }
     }
 
     fun resetSession() {
         viewModelScope.launch {
+            val current = repository.getCrmState()
             repository.clearChat()
             repository.clearLogs()
-            // Reset CRM to baseline
-            repository.updateCrmState(CrmStateEntity())
+            
+            val configState = current?.let {
+                CrmStateEntity(
+                    customerName = it.customerName,
+                    tier = it.tier,
+                    bandwidthUsedGb = 0,
+                    bandwidthLimitGb = 150,
+                    pendingTopups = 0,
+                    openRouterApiKey = it.openRouterApiKey,
+                    openRouterModel = it.openRouterModel
+                )
+            } ?: CrmStateEntity()
+            
+            repository.updateCrmState(configState)
             aiManager.forceResetAgent()
             _currentAgent.value = "Triage Router"
             
+            val name = configState.customerName
             // Insert greeting message from Triage Router
             repository.insertMessage(ChatMessageEntity(
                 role = "assistant",
                 agentName = "Triage Router",
-                content = "Orchestrated session reset complete. Authoritative CRM initialized to default platinum state.\n\nGreetings **Sumit Kumar**! I am the **Triage Router** for PRReSSO. Tap are ready for network checks or upgrade negotiations. Let me know how I can help!"
+                content = "Orchestrated session reset complete. Authoritative CRM initialized.\n\nGreetings **$name**! I am the **Triage Router** for PRReSSO. Tap are ready for network checks or upgrade negotiations. Let me know how I can help!"
             ))
         }
     }

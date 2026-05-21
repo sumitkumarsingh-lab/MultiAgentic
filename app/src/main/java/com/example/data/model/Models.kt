@@ -11,7 +11,9 @@ data class CrmStateEntity(
     val tier: String = "Platinum",
     val bandwidthUsedGb: Int = 142,
     val bandwidthLimitGb: Int = 150,
-    val pendingTopups: Int = 0
+    val pendingTopups: Int = 0,
+    val openRouterApiKey: String = "",
+    val openRouterModel: String = "google/gemini-2.5-flash:free"
 ) {
     val isThrottled: Boolean
         get() = (bandwidthUsedGb.toDouble() / bandwidthLimitGb.toDouble()) >= 0.90
